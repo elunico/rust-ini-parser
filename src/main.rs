@@ -30,5 +30,10 @@ fn main() {
         value, section.name
     );
 
+    match file.peek_value("a setting that does not exist") {
+        Some(value) => println!("Value for 'a setting that does not exist' = {}", value),
+        None => println!("No value for 'a setting that does not exist'"),
+    }
+
     file.write_to_file("output.ini", true).unwrap();
 }

@@ -110,6 +110,15 @@ impl IniSection {
     return None;
   }
 
+  pub fn peek_value(&self, key: &str) -> Option<&str> {
+    for (k, entry) in &self.entries {
+      if k == key {
+        return Some(entry.value.as_str());
+      }
+    }
+    return None;
+  }
+
   pub fn get_entry(&mut self, key: &str) -> Option<&mut IniEntry> {
     for (k, entry) in &mut self.entries {
       if k == key {
