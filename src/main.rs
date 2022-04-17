@@ -6,9 +6,9 @@ macro_rules! assert {
     };
 }
 
-mod inifile;
+pub mod inifile;
 
-mod parsing;
+pub mod parsing;
 use parsing::*;
 
 fn main() {
@@ -30,5 +30,5 @@ fn main() {
         value, section.name
     );
 
-    file.write_to_file("output.ini").unwrap();
+    file.write_to_file("output.ini", true).unwrap();
 }

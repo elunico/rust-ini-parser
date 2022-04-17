@@ -42,7 +42,7 @@ impl IniFile {
     return None;
   }
 
-  pub fn write_to_file(&self, filename: &str) -> Result<(), String> {
+  pub fn write_to_file(&self, filename: &str, include_empty_sections: bool) -> Result<(), String> {
     let mut file = match fs::OpenOptions::new()
       .write(true)
       .create(true)
@@ -53,21 +53,25 @@ impl IniFile {
       Err(e) => return Err(format!("{}", e)),
     };
 
-    let default_section = self.sections.get("<default>");
-    if let Some(sec) = default_section {
-      for (_, entry) in &sec.entries {
-        let _ = writeln!(file, "{}={}", entry.key, entry.value);
+    fn write_entries(file: &mut fs::File, section: &IniSection) {
+      for (_, entry) in &section.entries {
+        let _ = writeln!(file, "{} = {}", entry.key, entry.value);
       }
     }
 
+    // handle default section separately
+    // default section is always written first to the file
+    // otherwise the entries would be usurped by the other sections
+    if let Some(sec) = self.sections.get("<default>") {
+      write_entries(&mut file, sec);
+    }
+
     for (_, section) in &self.sections {
-      if section.is_default {
+      if section.is_default || (!include_empty_sections && section.entries.len() == 0) {
         continue;
       }
       let _ = writeln!(file, "\n[{}]", section.name);
-      for (_, entry) in &section.entries {
-        let _ = writeln!(file, "{}={}", entry.key, entry.value);
-      }
+      write_entries(&mut file, &section);
     }
     Ok(())
   }

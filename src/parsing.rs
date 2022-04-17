@@ -1,180 +1,200 @@
-mod parser_util;
 use super::inifile::*;
-use parser_util::*;
 use std::collections::HashMap;
 use std::fs;
 
-pub fn eat_whitespace(chars: &mut Vec<char>, start: &mut usize, location: &mut ParserLocation) {
-  let mut s = *start;
-  while s < chars.len() && chars[s].is_whitespace() {
-    if chars[s] == '\n' {
-      inc_line(location);
+#[derive(Debug, PartialEq)]
+pub enum CharResult {
+  Char(char),
+  Eof,
+}
+
+pub struct ParsableString {
+  chars: Vec<char>,
+  current_index: usize,
+  mark_index: usize,
+  pos: usize,
+  line: usize,
+  col: usize,
+}
+
+impl ParsableString {
+  pub fn new(s: &str) -> ParsableString {
+    ParsableString {
+      chars: s.chars().collect(),
+      current_index: 0,
+      mark_index: 0,
+      pos: 1,
+      line: 1,
+      col: 1,
+    }
+  }
+
+  pub fn done(&self) -> bool {
+    self.current_index >= self.chars.len()
+  }
+
+  pub fn mark(&mut self) {
+    self.mark_index = self.current_index;
+  }
+
+  pub fn is_marked(&self) -> bool {
+    self.mark_index != self.current_index
+  }
+
+  pub fn unmark(&mut self) {
+    self.mark_index = self.current_index;
+  }
+
+  pub fn get_marked_string(&self) -> String {
+    return self.chars[self.mark_index..self.current_index]
+      .iter()
+      .collect();
+  }
+
+  pub fn peek(&self) -> CharResult {
+    if self.current_index >= self.chars.len() {
+      return CharResult::Eof;
     } else {
-      inc_char(location);
+      return CharResult::Char(self.chars[self.current_index]);
     }
-    s += 1;
-  }
-  *start = s;
-}
-
-pub fn parse_key(
-  chars: &mut Vec<char>,
-  start: &mut usize,
-  location: &mut ParserLocation,
-) -> Result<Option<String>, String> {
-  if *start >= chars.len() {
-    return Ok(None);
-  }
-  let mut s = *start;
-  let begin = *start;
-  while s < chars.len() && chars[s] != '=' {
-    if chars[s] == '\n' {
-      return Err(format!(
-        "Missing equals sign in file at at line {}, col {} (char {})",
-        location.line, location.col, location.pos
-      ));
-    }
-    if chars[s] == '[' {
-      println!(
-        "Warning: '[' detected in key. '[' deliminiates sections only at the start of a line"
-      )
-    }
-    if chars[s] == ']' {
-      println!(
-        "Warning: ']' detected in key. ']' deliminiates sections only at the start of a line"
-      )
-    }
-    s += 1;
-    inc_char(location);
-  }
-  *start = s;
-  return Ok(Some(chars[begin..s].into_iter().collect()));
-}
-
-pub fn parse_value(
-  chars: &mut Vec<char>,
-  start: &mut usize,
-  location: &mut ParserLocation,
-) -> Result<Option<String>, String> {
-  if *start >= chars.len() {
-    return Ok(None);
   }
 
-  let mut s = *start;
-  assert!(chars[*start] == '=');
-
-  s += 1;
-  inc_char(location);
-
-  let begin = s;
-
-  while s < chars.len() && chars[s] != '=' && chars[s] != '\n' && chars[s] != '#' {
-    if chars[s] == '[' {
-      println!(
-        "Warning: '[' detected in value. '[' deliminiates sections only at the start of a line"
-      )
+  pub fn advance(&mut self) -> CharResult {
+    if self.current_index < self.chars.len() {
+      let c = self.chars[self.current_index];
+      self.current_index += 1;
+      self.pos += 1;
+      self.col += 1;
+      if c == '\n' {
+        self.line += 1;
+        self.col = 1;
+      }
+      return CharResult::Char(c);
+    } else {
+      return CharResult::Eof;
     }
-    if chars[s] == ']' {
-      println!(
-        "Warning: ']' detected in value. ']' deliminiates sections only at the start of a line"
-      )
-    }
-    s += 1;
-    inc_char(location);
   }
-  *start = s;
-  return Ok(Some(chars[begin..s].into_iter().collect()));
-}
 
-pub fn parse_section(
-  chars: &mut Vec<char>,
-  start: &mut usize,
-  location: &mut ParserLocation,
-) -> Result<Option<IniSection>, String> {
-  if *start >= chars.len() || chars[*start] != '[' {
+  pub fn error(&self, msg: &str) -> String {
+    return format!(
+      "Parse error: {} at line {}, column {} (char {})",
+      msg, self.line, self.col, self.pos
+    );
+  }
+
+  fn eat_whitespace(&mut self) {
+    while let CharResult::Char(c) = self.peek() {
+      if c.is_whitespace() {
+        self.advance();
+      } else {
+        break;
+      }
+    }
+  }
+
+  fn warning(&self, c: char) {
+    println!(
+      "Warning: '{}' detected in key. '{}' deliminiates sections only at the start of a line",
+      c, c
+    );
+  }
+
+  fn parse_key(&mut self) -> Result<Option<String>, String> {
+    self.mark();
+    while let CharResult::Char(c) = self.peek() {
+      if c == '\n' {
+        return Err(self.error("Missing equals sign in file"));
+      }
+      if c == '[' {
+        self.warning('[');
+      }
+      if c == ']' {
+        self.warning(']');
+      }
+      if c == '=' {
+        return Ok(Some(self.get_marked_string()));
+      }
+      self.advance();
+    }
     return Ok(None);
   }
 
-  let mut s = *start + 1;
-  inc_char(location);
-  let begin = s;
-
-  while s < chars.len() && chars[s] != ']' {
-    if chars[s] == '\n' {
-      return Err(format!(
-        "Unterminated bracket in section name at line {}, col {} (char {})",
-        location.line, location.col, location.pos
-      ));
+  fn parse_value(&mut self) -> Result<Option<String>, String> {
+    assert!((self.done() || self.peek() == CharResult::Char('=')));
+    self.advance();
+    self.mark();
+    while let CharResult::Char(c) = self.peek() {
+      if c == '\n' || c == '\r' || c == '#' {
+        return Ok(Some(self.get_marked_string()));
+      }
+      self.advance();
     }
-    s += 1;
-    inc_char(location);
+    return Ok(None);
   }
-  let name = chars[begin..s].into_iter().collect();
-  if s < chars.len() {
-    // discard the closing square bracket
-    s += 1;
-  }
-  inc_char(location);
 
-  // eat whitespace until the next line but allow comments
-  while s < chars.len() && chars[s] != '\n' && chars[s] != '#' {
-    if !chars[s].is_whitespace() {
-      return Err(format!(
-        "Extraneous characters after section name at line {}, col {} (char {})",
-        location.line, location.col, location.pos
-      ));
+  fn parse_section(&mut self) -> Result<Option<IniSection>, String> {
+    if self.done() || self.peek() != CharResult::Char('[') {
+      return Ok(None);
     }
-    s += 1;
-    inc_char(location);
+    self.advance(); // consume '['
+    self.mark();
+    // capture name of the section
+    while let CharResult::Char(c) = self.peek() {
+      if c == ']' {
+        break;
+      }
+      if c == '\n' {
+        return Err(self.error("Missing closing ']' in section name"));
+      }
+      self.advance();
+    }
+
+    let section_name = self.get_marked_string();
+    self.advance(); // consume ']'
+
+    // ensure that the section name is on its own line
+    while let CharResult::Char(c) = self.peek() {
+      if c == '#' || c == '\n' {
+        return Ok(Some(IniSection {
+          name: section_name,
+          entries: HashMap::new(),
+          is_default: false,
+        }));
+      }
+      if c.is_whitespace() {
+        self.advance();
+      } else {
+        return Err(self.error("Extraneous characters after section name"));
+      }
+    }
+    return Err(self.error(
+      "Empty section! Set environment var INI_PARSER_ALLOW_EMPTY_SECTIONS to true to allow",
+    ));
   }
 
-  *start = s;
-  return Ok(Some(IniSection {
-    name: name,
-    entries: HashMap::new(),
-    is_default: false,
-  }));
-}
-
-pub fn parse_entry(
-  chars: &mut Vec<char>,
-  start: &mut usize,
-  location: &mut ParserLocation,
-) -> Result<Option<IniEntry>, String> {
-  let key = parse_key(chars, start, location)?;
-  let value = parse_value(chars, start, location)?;
-  return match (key, value) {
-    (Some(k), Some(v)) => Ok(Some(IniEntry { key: k, value: v })),
-    (_, _) => Ok(None),
-  };
-  // return Ok(IniEntry { key, value });
-}
-
-pub fn eat_comments(chars: &mut Vec<char>, start: &mut usize, location: &mut ParserLocation) {
-  if *start < chars.len() && chars[*start] != '#' {
-    return;
+  fn parse_entry(&mut self) -> Result<Option<IniEntry>, String> {
+    return match (self.parse_key()?, self.parse_value()?) {
+      (Some(k), Some(v)) => Ok(Some(IniEntry { key: k, value: v })),
+      (_, _) => Ok(None),
+    };
   }
 
-  let mut s = *start + 1; // discard hashtag at least
-  inc_char(location);
-
-  while s < chars.len() && chars[s] != '\n' {
-    s += 1; // ini only has line comments
-    inc_char(location);
+  fn eat_comments(&mut self) {
+    while self.peek() == CharResult::Char('#') {
+      while self.peek() != CharResult::Char('\n') {
+        self.advance();
+      }
+      self.eat_whitespace();
+    }
   }
-  inc_line(location);
-  *start = s + 1; // skip the newline
 }
 
 pub fn parse_ini(content: &mut String) -> Result<IniFile, String> {
-  let mut location = ParserLocation {
-    pos: 1,
-    line: 1,
-    col: 1,
-  };
-  let mut chars: Vec<char> = content.chars().collect();
-  let mut idx = 0;
+  // parser location for error reporting
+  // iterate over each character
+  let mut ps = ParsableString::new(content);
 
+  // create the default section and a list of other sections
   let default_section = IniSection {
     name: String::from("<default>"),
     entries: HashMap::new(),
@@ -182,26 +202,40 @@ pub fn parse_ini(content: &mut String) -> Result<IniFile, String> {
   };
   let mut sections: HashMap<String, IniSection> = HashMap::new();
 
+  // hold the current section
   let mut active_section: IniSection = default_section;
-  while idx < chars.len() {
-    eat_whitespace(&mut chars, &mut idx, &mut location);
-    let section = parse_section(&mut chars, &mut idx, &mut location)?;
-    if let Some(sec) = section {
+
+  // parse the file
+  while !ps.done() {
+    ps.eat_whitespace();
+    ps.eat_comments();
+    ps.eat_whitespace();
+    while let Some(sec) = ps.parse_section()? {
+      if !active_section.is_default
+        && active_section.entries.len() == 0
+        && !std::env::var("INI_PARSER_ALLOW_EMPTY_SECTIONS").is_ok()
+      {
+        return Err(ps.error(
+          "Empty section! Set environment var INI_PARSER_ALLOW_EMPTY_SECTIONS to true to allow",
+        ));
+      }
       sections.insert(active_section.name.to_string(), active_section);
       active_section = sec;
+      ps.eat_whitespace();
+      ps.eat_comments();
+      ps.eat_whitespace();
     }
-    eat_whitespace(&mut chars, &mut idx, &mut location);
-    eat_comments(&mut chars, &mut idx, &mut location);
-    eat_whitespace(&mut chars, &mut idx, &mut location);
-    let entry = parse_entry(&mut chars, &mut idx, &mut location)?;
+
+    let entry = ps.parse_entry()?;
     if let Some(e) = entry {
       active_section.entries.insert(e.key.to_string(), e);
     }
-    eat_whitespace(&mut chars, &mut idx, &mut location);
-    eat_comments(&mut chars, &mut idx, &mut location);
   }
 
+  // add the last active section when the file ends
   sections.insert(active_section.name.to_string(), active_section);
+
+  // return the parsed file
   return Ok(IniFile {
     filename: String::from("<missing>"),
     sections: sections,
@@ -209,8 +243,11 @@ pub fn parse_ini(content: &mut String) -> Result<IniFile, String> {
 }
 
 pub fn parse_ini_file(filename: String) -> Result<IniFile, String> {
-  let mut content = fs::read_to_string(&filename).expect("Could not read file");
-  let mut file = parse_ini(&mut content)?;
+  let content = fs::read_to_string(&filename);
+  if content.is_err() {
+    return Err(format!("Could not read file {}", filename));
+  }
+  let mut file = parse_ini(&mut content.unwrap())?;
   file.filename = filename;
   return Ok(file);
 }
