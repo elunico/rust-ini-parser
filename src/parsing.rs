@@ -155,11 +155,7 @@ impl ParsableString {
     // ensure that the section name is on its own line
     while let CharResult::Char(c) = self.peek() {
       if c == '#' || c == '\n' {
-        return Ok(Some(IniSection {
-          name: section_name,
-          entries: HashMap::new(),
-          is_default: false,
-        }));
+        return Ok(Some(IniSection::new(&section_name)));
       }
       if c.is_whitespace() {
         self.advance();
@@ -195,11 +191,7 @@ pub fn parse_ini(content: &mut String) -> Result<IniFile, String> {
   let mut ps = ParsableString::new(content);
 
   // create the default section and a list of other sections
-  let default_section = IniSection {
-    name: String::from("<default>"),
-    entries: HashMap::new(),
-    is_default: true,
-  };
+  let default_section = IniSection::new_default();
   let mut sections: HashMap<String, IniSection> = HashMap::new();
 
   // hold the current section
@@ -211,7 +203,7 @@ pub fn parse_ini(content: &mut String) -> Result<IniFile, String> {
     ps.eat_comments();
     ps.eat_whitespace();
     while let Some(sec) = ps.parse_section()? {
-      if !active_section.is_default
+      if !active_section.is_default()
         && active_section.entries.len() == 0
         && !std::env::var("INI_PARSER_ALLOW_EMPTY_SECTIONS").is_ok()
       {
@@ -242,12 +234,12 @@ pub fn parse_ini(content: &mut String) -> Result<IniFile, String> {
   });
 }
 
-pub fn parse_ini_file(filename: String) -> Result<IniFile, String> {
+pub fn parse_ini_file(filename: &str) -> Result<IniFile, String> {
   let content = fs::read_to_string(&filename);
   if content.is_err() {
     return Err(format!("Could not read file {}", filename));
   }
   let mut file = parse_ini(&mut content.unwrap())?;
-  file.filename = filename;
+  file.filename = filename.to_owned();
   return Ok(file);
 }

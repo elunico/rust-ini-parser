@@ -11,6 +11,13 @@ pub struct IniFile {
 
 #[allow(dead_code)]
 impl IniFile {
+  pub fn new(filename: &str) -> IniFile {
+    IniFile {
+      filename: filename.to_owned(),
+      sections: HashMap::new(),
+    }
+  }
+
   pub fn add_section(&mut self, section: IniSection) {
     // self.sections.push(section);
     self.sections.insert(section.name.to_string(), section);
@@ -22,6 +29,15 @@ impl IniFile {
 
   pub fn peek_section(&self, section: &str) -> Option<&IniSection> {
     return self.sections.get(section);
+  }
+
+  pub fn get_entry(&mut self, key: &str) -> Option<&mut IniEntry> {
+    for section in self.sections.values_mut() {
+      if let Some(entry) = section.get_entry(key) {
+        return Some(entry);
+      }
+    }
+    return None;
   }
 
   pub fn peek(&self, key: &str) -> Option<(&IniSection, &str)> {
@@ -82,21 +98,41 @@ impl IniFile {
 pub struct IniSection {
   pub name: String,
   pub entries: HashMap<String, IniEntry>,
-  pub is_default: bool,
+  is_default: bool,
 }
 
 #[allow(dead_code)]
 impl IniSection {
+  pub fn new(name: &str) -> IniSection {
+    IniSection {
+      name: name.to_owned(),
+      entries: HashMap::new(),
+      is_default: false,
+    }
+  }
+
+  pub fn new_default() -> IniSection {
+    IniSection {
+      name: "<default>".to_owned(),
+      entries: HashMap::new(),
+      is_default: true,
+    }
+  }
+
+  pub fn is_default(&self) -> bool {
+    return self.is_default;
+  }
+
   pub fn add_entry(&mut self, entry: IniEntry) {
     self.entries.insert(entry.key.to_string(), entry);
   }
 
   pub fn create_entry(&mut self, key: &str, value: &str) {
     self.entries.insert(
-      key.to_string(),
+      key.to_owned(),
       IniEntry {
-        key: String::from(key),
-        value: String::from(value),
+        key: key.to_owned(),
+        value: value.to_owned(),
       },
     );
   }

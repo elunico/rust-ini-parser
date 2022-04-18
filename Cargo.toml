@@ -1,5 +1,5 @@
 [package]
-name = "rust-ini-parse"
+name = "rust-ini-parser"
 version = "0.1.0"
 edition = "2021"
 
